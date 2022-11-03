@@ -1,0 +1,279 @@
+//DummySerial.cs
+
+using LiveCharts;
+using System;
+using System.Collections.Generic;
+using System.IO.Ports;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Threading;
+
+namespace SerialMonitor
+{
+    public class DummySerial : IDeviceSerial
+    {
+        public string ReceiveData { get; private set; }
+        public SeriesCollection SeriesCollection { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+
+        public event EventHandler DataEvent;
+        DispatcherTimer dispatcher = new DispatcherTimer();
+        private int count;
+
+        public DummySerial()
+        {
+            dispatcher.Tick += new EventHandler(dispatcherTimer_Tick);
+            dispatcher.Interval = new TimeSpan(0, 0, 0, 0, 50);
+
+        }
+
+        private void dispatcherTimer_Tick(object? sender, EventArgs e)
+        {
+            count++;
+            ReceiveData=count.ToString();
+            DataEvent(this, EventArgs.Empty);
+        }
+
+        public bool Close()
+        {
+            dispatcher.Stop();
+            return true;
+        }
+
+        public bool Connect(int portName, int baudRate = 9600, int DataBits = 8, Parity parity = Parity.None, StopBits stopBits = StopBits.One)
+        {
+            dispatcher.Start();
+            return true;
+        }
+    }
+}
+
+-------------------------------------------------
+// MainWindowViewModel.cs
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using LiveCharts;
+using LiveCharts.Wpf;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace SerialMonitor
+{
+    public class MainWindowViewModel : ObservableObject
+    {
+        public SeriesCollection SeriesCollection { get; set; }
+
+        readonly IDeviceSerial deviceSerial = new DummySerial(); //DeviceSerial();
+        // 새로운 디바이스 바꿀 때 이것 만 바꿔주면 됨 
+        private string receiveData = "";
+        public string ReceiveData
+        {
+            get => receiveData;
+            set => SetProperty(ref receiveData, value);
+        }
+
+        public RelayCommand OpenButtonCommand { get; }
+        public RelayCommand CloseButtonCommand { get; }
+
+        public MainWindowViewModel()
+        {
+            deviceSerial.DataEvent += new EventHandler(DataReceived);
+            OpenButtonCommand = new RelayCommand(ConnectButton);
+            CloseButtonCommand = new RelayCommand(CloseButton);
+            SeriesCollection = new SeriesCollection
+            {
+                new LineSeries
+                {
+                    Title ="Series 1",
+                    Values = new ChartValues<double> { 1,2,3,4,5}
+                },
+                new LineSeries
+                {
+                    Title="Series 2",
+                    Values= new ChartValues<double>{10,9,8,7,6,5,4,3,2,1}
+                }
+            };
+        }
+
+        private void DataReceived(object? sender, EventArgs e)
+        {
+            var temp = (IDeviceSerial)sender;
+            ReceiveData=temp.ReceiveData;
+
+            var values = Convert.ToDouble(ReceiveData);
+            SeriesCollection[0].Values.Add(values);
+        }
+
+        private void ConnectButton()
+        {
+            deviceSerial.Connect(3);
+        }
+        private void CloseButton()
+        {
+            deviceSerial.Close();
+        }
+    }
+}
+
+
+----------------------------------------------------
+//DeviceSerial.cs
+
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using LiveCharts;
+using LiveCharts.Wpf;
+using System;
+using System.Diagnostics;
+using System.IO.Ports;
+using System.Threading;
+using System.Windows.Input;
+using System.Windows.Threading;
+
+namespace SerialMonitor
+{
+    partial class DeviceSerial : IDeviceSerial //DeviceSerial 인터페이스 추출
+    {
+
+        public event EventHandler DataEvent;
+        public string ReceiveData { get; private set; }
+
+        public SeriesCollection SeriesCollection { get; set; }
+
+        readonly SerialPort serialPort = new SerialPort();
+
+        public DeviceSerial()
+        {
+
+        }
+
+
+        public bool Connect(int portName, int baudRate = (int)9600, int DataBits = (int)8, Parity parity = Parity.None, StopBits stopBits = StopBits.One)
+        {
+            if (serialPort.IsOpen == false)
+            {
+                serialPort.PortName = "COM" + portName.ToString();
+                serialPort.BaudRate = baudRate;
+                serialPort.Parity = parity;
+                serialPort.StopBits = stopBits;
+                serialPort.DataBits = DataBits;
+
+
+                serialPort.Open();
+                serialPort.DataReceived += new SerialDataReceivedEventHandler(DataReceiveHandler);
+
+            }
+
+
+            return true;
+        }
+
+        private void DataReceiveHandler(object sender, SerialDataReceivedEventArgs e)
+        {
+            SerialPort serialPort = (SerialPort)sender;
+            string temp = serialPort.ReadLine();
+
+            if (String.IsNullOrEmpty(temp) == false)
+            {
+                ReceiveData = temp.Trim().ToString();
+                Debug.WriteLine(ReceiveData);
+                DataEvent(this, EventArgs.Empty);
+            }
+
+        }
+
+        public bool Close()
+        {
+            serialPort.DataReceived -= new SerialDataReceivedEventHandler(DataReceiveHandler);
+
+            serialPort.Close();
+
+            return true;
+        }
+
+    }
+}
+-----------------------------------
+// MainWindow.xaml
+
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using LiveCharts;
+using LiveCharts.Wpf;
+using System;
+using System.Diagnostics;
+using System.IO.Ports;
+using System.Threading;
+using System.Windows.Input;
+using System.Windows.Threading;
+
+namespace SerialMonitor
+{
+    partial class DeviceSerial : IDeviceSerial //DeviceSerial 인터페이스 추출
+    {
+
+        public event EventHandler DataEvent;
+        public string ReceiveData { get; private set; }
+
+        public SeriesCollection SeriesCollection { get; set; }
+
+        readonly SerialPort serialPort = new SerialPort();
+
+        public DeviceSerial()
+        {
+
+        }
+
+
+        public bool Connect(int portName, int baudRate = (int)9600, int DataBits = (int)8, Parity parity = Parity.None, StopBits stopBits = StopBits.One)
+        {
+            if (serialPort.IsOpen == false)
+            {
+                serialPort.PortName = "COM" + portName.ToString();
+                serialPort.BaudRate = baudRate;
+                serialPort.Parity = parity;
+                serialPort.StopBits = stopBits;
+                serialPort.DataBits = DataBits;
+
+
+                serialPort.Open();
+                serialPort.DataReceived += new SerialDataReceivedEventHandler(DataReceiveHandler);
+
+            }
+
+
+            return true;
+        }
+
+        private void DataReceiveHandler(object sender, SerialDataReceivedEventArgs e)
+        {
+            SerialPort serialPort = (SerialPort)sender;
+            string temp = serialPort.ReadLine();
+
+            if (String.IsNullOrEmpty(temp) == false)
+            {
+                ReceiveData = temp.Trim().ToString();
+                Debug.WriteLine(ReceiveData);
+                DataEvent(this, EventArgs.Empty);
+            }
+
+        }
+
+        public bool Close()
+        {
+            serialPort.DataReceived -= new SerialDataReceivedEventHandler(DataReceiveHandler);
+
+            serialPort.Close();
+
+            return true;
+        }
+
+    }
+}
+
